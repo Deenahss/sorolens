@@ -38,6 +38,17 @@ func New(h *handler.Handler) http.Handler {
 	reg.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	reg.MustRegister(middleware.CacheCollectors()...)
 	r.Get("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}).ServeHTTP)
+	pprofAdmin := middleware.RequireRoleOrForbidden(h.Store, h.Logger, middleware.RoleAdmin)
+	r.With(pprofAdmin).Get("/debug/pprof", pprof.Index)
+	r.With(pprofAdmin).Get("/debug/pprof/", pprof.Index)
+	r.With(pprofAdmin).Get("/debug/pprof/cmdline", pprof.Cmdline)
+	r.With(pprofAdmin).Get("/debug/pprof/profile", pprof.Profile)
+	r.With(pprofAdmin).Get("/debug/pprof/symbol", pprof.Symbol)
+	r.With(pprofAdmin).Post("/debug/pprof/symbol", pprof.Symbol)
+	r.With(pprofAdmin).Get("/debug/pprof/trace", pprof.Trace)
+	for _, profile := range []string{"allocs", "block", "goroutine", "heap", "mutex", "threadcreate"} {
+		r.With(pprofAdmin).Get("/debug/pprof/"+profile, pprof.Handler(profile).ServeHTTP)
+	}
 
 	// Slack slash commands (issue #127). Outside /api/v1 because Slack posts
 	// form-encoded bodies, which the JSON content-type guard would reject;
@@ -71,6 +82,8 @@ func New(h *handler.Handler) http.Handler {
 		cacheContracts := middleware.Cache(h.Cache, middleware.CacheNamespaceContracts, h.CacheTTL, h.Logger)
 		cacheWatchdog := middleware.Cache(h.Cache, middleware.CacheNamespaceWatchdog, h.CacheTTL, h.Logger)
 		purgeContracts := middleware.InvalidateOnWrite(h.Cache, h.Logger, middleware.CacheNamespaceContracts)
+		cacheLabels := middleware.Cache(h.Cache, middleware.CacheNamespaceLabels, h.CacheTTL, h.Logger)
+		purgeLabels := middleware.InvalidateOnWrite(h.Cache, h.Logger, middleware.CacheNamespaceLabels)
 
 		// Cross-contract events explorer feed (issue #97).
 		get("/events", h.ListAllEvents)
@@ -82,6 +95,9 @@ func New(h *handler.Handler) http.Handler {
 		// Contracts. Registration mutates shared state, so it requires at
 		// least contributor role. Reads stay open.
 		r.With(scope, contributor, purgeContracts).Post("/contracts", h.RegisterContract)
+		r.With(scope, contributor, purgeLabels).Post("/labels", h.CreateLabel)
+		r.With(scope, cacheLabels).Get("/labels", h.ListLabels)
+		r.With(scope, cacheLabels).Get("/resolve", h.ResolveLabel)
 		r.With(scope, cacheContracts).Get("/contracts", h.ListContracts)
 		r.With(scope, cacheContracts).Get("/contracts/{id}", h.GetContract)
 		get("/contracts/{id}/events", h.ListEvents)
@@ -98,7 +114,6 @@ func New(h *handler.Handler) http.Handler {
 		get("/contracts/{id}/stream", h.StreamEvents)
 		get("/contracts/{id}/graph", h.ContractGraph)
 		get("/stream/events", h.StreamEventsSSE)
-
 
 		// API keys (admin scope + admin role).
 		r.With(scope, admin).Get("/api-keys", h.ListAPIKeys)

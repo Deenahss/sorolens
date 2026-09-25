@@ -26,6 +26,7 @@ import type {
   WatchlistResponse,
   WatchlistStatusResponse,
   HealthScoreResponse,
+  LabelResolution,
 } from "./types";
 
 
@@ -101,6 +102,12 @@ export function trackContract(
 
 export function getContract(id: string): Promise<ContractDetail> {
   return fetchJson<ContractDetail>(`${API_URL}/api/v1/contracts/${id}`);
+}
+
+export function resolveLabel(query: string): Promise<LabelResolution> {
+  return fetchJson<LabelResolution>(
+    `${API_URL}/api/v1/resolve?query=${encodeURIComponent(query)}`,
+  );
 }
 
 export function getContractEvents(
