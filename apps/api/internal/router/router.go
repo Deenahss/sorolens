@@ -40,6 +40,11 @@ func New(h *handler.Handler, maxBodyBytes int64) http.Handler {
 	r.Get("/health", h.Health)
 	r.Get("/readyz", h.Readyz)
 
+	// Version (public, not rate-limited, no DB access). Mounted at /api/version
+	// rather than under /api/v1 so it stays reachable without a versioned client
+	// and without the v1 scope/role middleware.
+	r.Get("/api/version", h.Version)
+
 	// Prometheus metrics (issue #143: response cache hit/miss counters). A
 	// registry per router keeps tests that build many routers independent.
 	reg := prometheus.NewRegistry()
@@ -133,12 +138,16 @@ func New(h *handler.Handler, maxBodyBytes int64) http.Handler {
 		get("/contracts/{id}/stats", h.ContractStats)
 		get("/contracts/{id}/forecast", h.ContractForecast)
 		get("/contracts/{id}/snapshot", h.ContractSnapshot)
+		get("/contracts/{id}/snapshot.json", h.ContractSnapshotExport)
 		get("/contracts/{id}/upgrades", h.ListContractUpgrades)
 		get("/contracts/{id}/health-score", h.GetContractHealthScore)
 		get("/contracts/{id}/summary", h.ContractSummary)
 		get("/contracts/{id}/stream", h.StreamEvents)
 		get("/contracts/{id}/graph", h.ContractGraph)
 		get("/stream/events", h.StreamEventsSSE)
+		// Dead-letter queue for events that failed processing (issue #202).
+		get("/dlq", h.ListFailedEvents)
+		r.With(scope, contributor).Post("/dlq/{id}/requeue", h.RequeueFailedEvent)
 
 		// API keys (admin scope + admin role).
 		r.With(scope, admin).Get("/api-keys", h.ListAPIKeys)
